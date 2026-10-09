@@ -8,6 +8,7 @@ from .evaluation import run_comparison, export_comparison
 from .admet_smoke import run_smoke, export_smoke
 from .admet import Endpoint
 from .checkpoint import run_resumable
+from .agent_live import live_agent_run, export_live_agent_run
 
 
 def load(path):
@@ -53,6 +54,14 @@ def main():
     resume.add_argument("--policy", choices=["fixed", "rules", "agent"], required=True)
     resume.add_argument("--seed", type=int, default=42)
     resume.add_argument("--budget", type=int, default=5)
+    live_agent = sub.add_parser("agent-live", help="opt-in live Strands + ADMET run")
+    live_agent.add_argument("--input", required=True)
+    live_agent.add_argument("--out", required=True)
+    live_agent.add_argument("--endpoint", required=True)
+    live_agent.add_argument("--direction", choices=["min", "max"], required=True)
+    live_agent.add_argument("--unit", required=True)
+    live_agent.add_argument("--revision", required=True)
+    live_agent.add_argument("--budget", type=int, default=10)
     args = parser.parse_args()
     if args.command == "prepare":
         data = prepare(load(args.input))
@@ -75,6 +84,12 @@ def main():
         export_comparison(report, args.out, args.input)
         print(json.dumps({"runs": len(report["runs"]), "out": args.out,
                           "mode": "offline-fixture"}))
+    elif args.command == "agent-live":
+        endpoint = Endpoint(args.endpoint, args.direction, args.unit, args.revision)
+        report = live_agent_run(load(args.input), endpoint, budget_units=args.budget)
+        export_live_agent_run(report, args.out)
+        print(json.dumps({"status": report["status"], "evaluations": len(report["evaluated"]),
+                          "out": args.out, "mode": "live-agent"}))
     elif args.command == "resume":
         report = run_resumable(load(args.input), args.out,
                                policy=args.policy, seed=args.seed, budget_units=args.budget)
