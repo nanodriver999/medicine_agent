@@ -1,0 +1,46 @@
+name: ChEMBL public pool smoke
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/chembl-pool-smoke.yml'
+jobs:
+  public-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install project
+        run: python -m pip install -e .
+      - name: Acquire 120 canonical ChEMBL structures
+        run: python scripts/fetch_chembl_pool.py --count 120 --out data/processed/chembl_pool.csv
+      - name: Prepare, compare and validate >=100 candidates
+        shell: bash
+        run: |
+          python -m amo.cli prepare --input data/processed/chembl_pool.csv --output data/processed/chembl_pool_clean.csv
+          python - <<'PY'
+          import csv, pathlib, json
+          folder = pathlib.Path('data/processed')
+          rows = list(csv.DictReader((folder/'chembl_pool_clean.csv').open()))
+          assert len(rows) >= 100, f"got only {len(rows)} valid structures"
+          manifest = json.loads((folder/'chembl_pool.manifest.json').read_text())
+          assert len(manifest['sha256']) == 64
+          assert manifest['selected'] >= 100
+          print(f"validated structures={len(rows)}; sha256={manifest['sha256']}")
+          PY
+          python -m amo.cli compare --input data/processed/chembl_pool_clean.csv --budget 30 --out outputs/chembl_3x3
+      - name: Upload candidate pool and benchmark
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chembl-pool-and-synthetic-benchmark
+          path: |
+            data/processed/
+            outputs/chembl_3x3/
+          if-no-files-found: warn
+          retention-days: 7
