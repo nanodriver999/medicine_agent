@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from .core import prepare, descriptors, run, save_run
 from .evaluation import run_comparison, export_comparison
+from .admet_smoke import run_smoke, export_smoke
+from .admet import Endpoint
 
 
 def load(path):
@@ -36,6 +38,14 @@ def main():
     compare.add_argument("--budget", type=int, default=5)
     dashboard = sub.add_parser("ui")
     dashboard.add_argument("--runs", required=True)
+    live = sub.add_parser("admet-smoke", help="opt-in: runs real ADMET-AI predictions")
+    live.add_argument("--input", required=True)
+    live.add_argument("--out", required=True)
+    live.add_argument("--endpoint", required=True)
+    live.add_argument("--direction", choices=["min", "max"], required=True)
+    live.add_argument("--unit", required=True)
+    live.add_argument("--revision", required=True)
+    live.add_argument("--count", type=int, default=10)
     args = parser.parse_args()
     if args.command == "prepare":
         data = prepare(load(args.input))
@@ -58,6 +68,12 @@ def main():
         export_comparison(report, args.out, args.input)
         print(json.dumps({"runs": len(report["runs"]), "out": args.out,
                           "mode": "offline-fixture"}))
+    elif args.command == "admet-smoke":
+        endpoint = Endpoint(args.endpoint, args.direction, args.unit, args.revision)
+        report = run_smoke(load(args.input), endpoint, max_count=args.count)
+        export_smoke(report, args.out)
+        print(json.dumps({"status": report["status"], "successes": report["successes"],
+                          "count": len(report["calls"]), "out": args.out}))
     elif args.command == "ui":
         import subprocess
         import sys
