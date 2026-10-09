@@ -7,6 +7,7 @@ from .core import prepare, descriptors, run, save_run
 from .evaluation import run_comparison, export_comparison
 from .admet_smoke import run_smoke, export_smoke
 from .admet import Endpoint
+from .checkpoint import run_resumable
 
 
 def load(path):
@@ -46,6 +47,12 @@ def main():
     live.add_argument("--unit", required=True)
     live.add_argument("--revision", required=True)
     live.add_argument("--count", type=int, default=10)
+    resume = sub.add_parser("resume", help="resumable deterministic offline run")
+    resume.add_argument("--input", required=True)
+    resume.add_argument("--out", required=True)
+    resume.add_argument("--policy", choices=["fixed", "rules", "agent"], required=True)
+    resume.add_argument("--seed", type=int, default=42)
+    resume.add_argument("--budget", type=int, default=5)
     args = parser.parse_args()
     if args.command == "prepare":
         data = prepare(load(args.input))
@@ -68,6 +75,12 @@ def main():
         export_comparison(report, args.out, args.input)
         print(json.dumps({"runs": len(report["runs"]), "out": args.out,
                           "mode": "offline-fixture"}))
+    elif args.command == "resume":
+        report = run_resumable(load(args.input), args.out,
+                               policy=args.policy, seed=args.seed, budget_units=args.budget)
+        print(json.dumps({"complete": report["complete"],
+                          "evaluated": len(report["evaluated"]),
+                          "out": args.out, "mode": "offline-fixture"}))
     elif args.command == "admet-smoke":
         endpoint = Endpoint(args.endpoint, args.direction, args.unit, args.revision)
         report = run_smoke(load(args.input), endpoint, max_count=args.count)
