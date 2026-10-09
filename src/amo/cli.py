@@ -4,6 +4,7 @@ import csv
 import json
 from pathlib import Path
 from .core import prepare, descriptors, run, save_run
+from .evaluation import run_comparison, export_comparison
 
 
 def load(path):
@@ -26,6 +27,15 @@ def main():
     execute.add_argument("--policy", choices=["fixed", "rules", "agent"], required=True)
     execute.add_argument("--seed", type=int, default=42)
     execute.add_argument("--budget", type=int, default=5)
+    compare = sub.add_parser("compare")
+    compare.add_argument("--input", required=True)
+    compare.add_argument("--out", required=True)
+    compare.add_argument("--seeds", nargs="+", type=int, default=[42, 43, 44])
+    compare.add_argument("--policies", nargs="+", choices=["fixed", "rules", "agent"],
+                         default=["fixed", "rules", "agent"])
+    compare.add_argument("--budget", type=int, default=5)
+    dashboard = sub.add_parser("ui")
+    dashboard.add_argument("--runs", required=True)
     args = parser.parse_args()
     if args.command == "prepare":
         data = prepare(load(args.input))
@@ -42,6 +52,18 @@ def main():
         target.mkdir(parents=True, exist_ok=True)
         (target / "scores.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
         print(json.dumps({"scored": len(data)}))
+    elif args.command == "compare":
+        report = run_comparison(load(args.input), seeds=args.seeds,
+                                policies=args.policies, budget=args.budget)
+        export_comparison(report, args.out, args.input)
+        print(json.dumps({"runs": len(report["runs"]), "out": args.out,
+                          "mode": "offline-fixture"}))
+    elif args.command == "ui":
+        import subprocess
+        import sys
+        subprocess.run([sys.executable, "-m", "streamlit", "run",
+                        str(Path(__file__).with_name("ui.py")), "--",
+                        "--runs", args.runs], check=True)
     else:
         result = run(load(args.input), args.policy, args.seed, args.budget, args.budget)
         save_run(result, args.out)
