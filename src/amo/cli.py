@@ -125,6 +125,8 @@ def main():
         export_smoke(report, args.out)
         print(json.dumps({"status": report["status"], "successes": report["successes"],
                           "count": len(report["calls"]), "out": args.out}))
+        if report["status"] != "ok":
+            parser.exit(1, "ADMET smoke failed; inspect admet_smoke.json for details\\n")
     elif args.command == "ui":
         import subprocess
         import sys

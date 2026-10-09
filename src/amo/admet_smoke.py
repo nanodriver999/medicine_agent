@@ -18,6 +18,7 @@ def run_smoke(rows: list[dict], endpoint: Endpoint, *, max_count: int = 10,
     candidates = prepare(rows)[:max_count]
     if len(candidates) < max_count:
         raise ValueError(f"Insufficient unique valid candidates: {len(candidates)} of {max_count}")
+    injected_adapter = adapter is not None
     if adapter is None:
         adapter = ADMETAdapter(endpoint)
     budget = Budget(endpoint.cost_units * max_count, max_count)
@@ -35,13 +36,14 @@ def run_smoke(rows: list[dict], endpoint: Endpoint, *, max_count: int = 10,
         calls.append({"molecule_id": molecule["molecule_id"], "smiles": molecule["smiles"],
                       "task": endpoint.name, **result})
     successes = sum(item["status"] == "ok" for item in calls)
+    execution_type = "injected-adapter" if injected_adapter else "live-admet-ai"
     try:
         installed = importlib.metadata.version("admet-ai")
     except importlib.metadata.PackageNotFoundError:
         installed = "not-installed-or-injected"
     return {
         "status": "ok" if successes == len(candidates) else "partial_failure",
-        "source": "admet_ai" if installed != "not-installed-or-injected" else "injected-test-predictor",
+        "source": execution_type,
         "endpoint": endpoint.__dict__,
         "package_version": installed,
         "retrieved_at_utc": datetime.now(timezone.utc).isoformat(),
