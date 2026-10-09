@@ -8,6 +8,7 @@ import platform
 import statistics
 from rdkit import rdBase
 from .core import run, diversity
+from .metrics import hypervolume_qed_risk, cost_curve
 
 
 def run_comparison(rows: list[dict], *, seeds=(42, 43, 44),
@@ -28,6 +29,8 @@ def run_comparison(rows: list[dict], *, seeds=(42, 43, 44),
                 "cost_units": result["budget"]["used_cost_units"],
                 "best_fixture_objective": max(values) if values else None,
                 "pareto_count": len(result["pareto"]),
+                "hypervolume_qed_risk": hypervolume_qed_risk(measured),
+                "coverage": len(measured) / len(result["molecules"]) if result["molecules"] else None,
                 "diversity": diversity([r["smiles"] for r in measured]),
             })
     aggregates = []
