@@ -44,6 +44,17 @@ jobs:
       - name: Inspect actual property schema
         run: |
           python -m amo.cli admet-inspect --smiles CCO --out outputs/admet_inventory.json
+      - name: Verify selected property key
+        env:
+          PROPERTY_NAME: ${{ inputs.endpoint }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from amo.endpoint_validation import assert_endpoint_present
+          inventory = json.loads(Path("outputs/admet_inventory.json").read_text())
+          assert_endpoint_present(inventory, os.environ["PROPERTY_NAME"])
+          PY
       - name: Run 10 real predictions with strict failure exit
         env:
           VERIFIED_ENDPOINT: ${{ inputs.endpoint }}
