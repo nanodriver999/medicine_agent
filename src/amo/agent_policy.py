@@ -32,44 +32,54 @@ class EvaluationSession:
                      "reason": str(exc)}
             self.events.append(event)
             return {"status": "rejected", "reason": str(exc)}
-        # Reserve authority before the external call. The evaluator may report a
-        # verified cache hit costing zero, but failures reserve the configured cost.
-        # This session is single-threaded; a concurrent runner must add locking.
-        self.seen.add(identity)
+        # In serialized execution, reserve the registered WORST CASE before the
+        # external call. For a retry-capable adapter this is max_attempts * cost.
         reserved = self.costs[action.tool]
-        billed = reserved
+        self.seen.add(identity)
         try:
             result = self.evaluator(self.molecules[action.molecule_id], action.tool, action.task)
-            if not isinstance(result, dict):
-                raise ValueError("unverified evaluator response")
-            if result.get("cache_hit") is True and result.get("status") == "ok":
-                # Trust zero-cost only when the registered adapter explicitly says
-                # both cache hit and no new model inference.
-                if result.get("cost_units") == 0:
-                    billed = 0
-            if (result.get("status") != "ok"
-                or isinstance(result.get("value"), bool)
-                or not isinstance(result.get("value"), (int, float))):
-                raise ValueError("unverified evaluator response")
-            import math
-            if not math.isfinite(result["value"]):
-                raise ValueError("non-finite evaluator response")
+        except Exception as exc:
+            result = {"status": "failed", "value": None, "error_code": type(exc).__name__}
+        import math
+        valid_result = isinstance(result, dict) and result.get("status") == "ok"
+        valid_value = (
+            valid_result and not isinstance(result.get("value"), bool)
+            and isinstance(result.get("value"), (int, float))
+            and math.isfinite(result["value"])
+        )
+        # Per-attempt cost can be less than the reservation (e.g. early success).
+        # Never accept an amount larger than our reserved worst case.
+        # Missing/malformed amounts conservatively charge the full reservation.
+        claimed = result.get("cost_units") if isinstance(result, dict) else None
+        claimed_valid = (
+            not isinstance(claimed, bool) and isinstance(claimed, (int, float))
+            and math.isfinite(claimed) and 0 <= claimed <= reserved
+        )
+        billed = float(claimed) if claimed_valid else reserved
+        cache_hit = (
+            valid_value and result.get("cache_hit") is True and claimed_valid
+            and billed == 0
+        )
+        if not cache_hit and billed == 0:
+            billed = reserved
+        # A registered evaluator may report its per-attempt usage on failures;
+        # if unavailable, charge the conservative maximum.
+        self.budget.debit(billed)
+        if valid_value:
             verified = {"status": "ok", "value": float(result["value"]),
                         "source": result.get("source", action.tool),
-                        "cache_hit": billed == 0}
-            self.budget.debit(billed)
+                        "cache_hit": cache_hit}
             self.events.append({"kind": "evaluated", "molecule_id": molecule_id,
                                 "tool": tool, "task": task,
                                 "cost_units": billed, "result": verified})
             return verified
-        except Exception as exc:
-            # Charge the reserved configured amount when provider-side usage
-            # cannot be independently proven to be free.
-            self.budget.debit(reserved)
-            self.events.append({"kind": "failed", "molecule_id": molecule_id,
-                                "tool": tool, "task": task,
-                                "cost_units": reserved, "error_code": type(exc).__name__})
-            return {"status": "failed", "value": None, "error_code": type(exc).__name__}
+        code = result.get("error_code", "UnverifiedResponse") if isinstance(result, dict) else "UnverifiedResponse"
+        if not isinstance(code, str) or not code.isidentifier():
+            code = "UnverifiedResponse"
+        self.events.append({"kind": "failed", "molecule_id": molecule_id,
+                            "tool": tool, "task": task,
+                            "cost_units": billed, "error_code": code})
+        return {"status": "failed", "value": None, "error_code": code}
 
     def policy_state(self) -> dict:
         return {"molecule_ids": sorted(self.molecules),
