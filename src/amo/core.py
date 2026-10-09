@@ -12,6 +12,7 @@ from typing import Iterable
 
 from rdkit import Chem, DataStructs, rdBase
 from rdkit.Chem import Descriptors, Crippen, QED, rdMolDescriptors
+from rdkit.Contrib.SA_Score import sascorer
 from rdkit.Chem.rdFingerprintGenerator import GetMorganGenerator
 
 FP = GetMorganGenerator(radius=2, fpSize=2048)
@@ -52,6 +53,7 @@ def descriptors(smiles: str) -> dict:
             "mw": float(Descriptors.MolWt(mol)),
             "clogp": float(Crippen.MolLogP(mol)),
             "tpsa": float(rdMolDescriptors.CalcTPSA(mol)),
+            "sa": float(sascorer.calculateScore(mol)),
             "rdkit_version": rdBase.rdkitVersion}
 
 
