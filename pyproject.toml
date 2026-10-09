@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentic-molecular-optimization"
+version = "0.1.0"
+description = "Reproducible, budget-aware molecular candidate evaluation research"
+requires-python = ">=3.10"
+dependencies = ["rdkit>=2024.3", "numpy>=1.24"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+ui = ["streamlit>=1.38", "pandas>=2"]
+
+[project.scripts]
+amo = "amo.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
