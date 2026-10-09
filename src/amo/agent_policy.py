@@ -32,11 +32,22 @@ class EvaluationSession:
                      "reason": str(exc)}
             self.events.append(event)
             return {"status": "rejected", "reason": str(exc)}
-        self.budget.debit(self.costs[action.tool])
+        # Reserve authority before the external call. The evaluator may report a
+        # verified cache hit costing zero, but failures reserve the configured cost.
+        # This session is single-threaded; a concurrent runner must add locking.
         self.seen.add(identity)
+        reserved = self.costs[action.tool]
+        billed = reserved
         try:
             result = self.evaluator(self.molecules[action.molecule_id], action.tool, action.task)
-            if (not isinstance(result, dict) or result.get("status") != "ok"
+            if not isinstance(result, dict):
+                raise ValueError("unverified evaluator response")
+            if result.get("cache_hit") is True and result.get("status") == "ok":
+                # Trust zero-cost only when the registered adapter explicitly says
+                # both cache hit and no new model inference.
+                if result.get("cost_units") == 0:
+                    billed = 0
+            if (result.get("status") != "ok"
                 or isinstance(result.get("value"), bool)
                 or not isinstance(result.get("value"), (int, float))):
                 raise ValueError("unverified evaluator response")
@@ -44,15 +55,20 @@ class EvaluationSession:
             if not math.isfinite(result["value"]):
                 raise ValueError("non-finite evaluator response")
             verified = {"status": "ok", "value": float(result["value"]),
-                        "source": result.get("source", action.tool)}
+                        "source": result.get("source", action.tool),
+                        "cache_hit": billed == 0}
+            self.budget.debit(billed)
             self.events.append({"kind": "evaluated", "molecule_id": molecule_id,
                                 "tool": tool, "task": task,
-                                "cost_units": self.costs[tool], "result": verified})
+                                "cost_units": billed, "result": verified})
             return verified
         except Exception as exc:
+            # Charge the reserved configured amount when provider-side usage
+            # cannot be independently proven to be free.
+            self.budget.debit(reserved)
             self.events.append({"kind": "failed", "molecule_id": molecule_id,
                                 "tool": tool, "task": task,
-                                "cost_units": self.costs[tool], "error_code": type(exc).__name__})
+                                "cost_units": reserved, "error_code": type(exc).__name__})
             return {"status": "failed", "value": None, "error_code": type(exc).__name__}
 
     def policy_state(self) -> dict:
