@@ -7,6 +7,8 @@ from .core import prepare, descriptors, run, save_run
 from .evaluation import run_comparison, export_comparison
 from .admet_smoke import run_smoke, export_smoke
 from .admet import Endpoint
+from .isolated_worker import predict_with_deadline
+from functools import partial
 from .checkpoint import run_resumable
 from .agent_live import live_agent_run, export_live_agent_run
 
@@ -48,6 +50,8 @@ def main():
     live.add_argument("--unit", required=True)
     live.add_argument("--revision", required=True)
     live.add_argument("--count", type=int, default=10)
+    live.add_argument("--hard-timeout", type=float, default=None,
+                      help="opt-in isolated ADMET process deadline, seconds")
     resume = sub.add_parser("resume", help="resumable deterministic offline run")
     resume.add_argument("--input", required=True)
     resume.add_argument("--out", required=True)
@@ -98,7 +102,15 @@ def main():
                           "out": args.out, "mode": "offline-fixture"}))
     elif args.command == "admet-smoke":
         endpoint = Endpoint(args.endpoint, args.direction, args.unit, args.revision)
-        report = run_smoke(load(args.input), endpoint, max_count=args.count)
+        if args.hard_timeout is not None:
+            from .admet import ADMETAdapter
+            adapter = ADMETAdapter(endpoint,
+                                   predictor=partial(predict_with_deadline,
+                                                     timeout_seconds=args.hard_timeout))
+        else:
+            adapter = None
+        report = run_smoke(load(args.input), endpoint, max_count=args.count,
+                           adapter=adapter)
         export_smoke(report, args.out)
         print(json.dumps({"status": report["status"], "successes": report["successes"],
                           "count": len(report["calls"]), "out": args.out}))
