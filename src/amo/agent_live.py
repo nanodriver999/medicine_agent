@@ -38,7 +38,7 @@ def live_agent_run(rows: list[dict], endpoint: Endpoint, *, budget_units: int = 
     session = EvaluationSession(
         {r["molecule_id"]: r["smiles"] for r in eligible},
         evaluate, {"admet_ai": {endpoint.name}},
-        {"admet_ai": endpoint.cost_units},
+        {"admet_ai": endpoint.cost_units * adapter.max_attempts},
         Budget(endpoint.cost_units * budget_units, budget_units))
     if driver is None:
         from strands.models.openai import OpenAIModel
