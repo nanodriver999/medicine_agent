@@ -1,0 +1,79 @@
+name: ADMET-AI real-model smoke (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      endpoint:
+        description: 'Verified installed ADMET-AI v2 output key'
+        required: true
+        type: string
+      direction:
+        description: 'Verified optimization direction'
+        required: true
+        type: choice
+        options: [min, max]
+      unit:
+        description: 'Verified native property units'
+        required: true
+        type: string
+      model_revision:
+        description: 'Manually verified model checkpoint/revision identifier'
+        required: true
+        type: string
+jobs:
+  real-admet-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned-project and current ADMET-AI
+        run: |
+          python -m pip install -e .
+          python -m pip install admet-ai
+          python -m pip freeze > /tmp/admet-installed-versions.txt
+      - name: Collect distinct public molecules
+        run: |
+          python scripts/fetch_chembl_pool.py --count 30 --out data/processed/chembl_smoke.csv
+      - name: Inspect actual property schema
+        run: |
+          python -m amo.cli admet-inspect --smiles CCO --out outputs/admet_inventory.json
+      - name: Run 10 real predictions with strict failure exit
+        env:
+          VERIFIED_ENDPOINT: ${{ inputs.endpoint }}
+          VERIFIED_DIRECTION: ${{ inputs.direction }}
+          VERIFIED_UNIT: ${{ inputs.unit }}
+          VERIFIED_REVISION: ${{ inputs.model_revision }}
+        shell: bash
+        run: |
+          python -m amo.cli admet-smoke --input data/processed/chembl_smoke.csv \
+            --count 10 --endpoint "$VERIFIED_ENDPOINT" --direction "$VERIFIED_DIRECTION" \
+            --unit "$VERIFIED_UNIT" --revision "$VERIFIED_REVISION" \
+            --out outputs/admet_live
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('outputs/admet_live/admet_smoke.json').read_text())
+          assert report['status'] == 'ok' and report['successes'] == 10
+          assert len(report['calls']) == 10
+          assert all(x['status'] == 'ok' and x['value'] is not None for x in report['calls'])
+          assert report['source'] == 'live-admet-ai'
+          print('10 model calls succeeded; accuracy and task semantics NOT independently established')
+          PY
+      - name: Upload logs and environment manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-admet-smoke-evidence
+          path: |
+            outputs/
+            data/processed/*.manifest.json
+            /tmp/admet-installed-versions.txt
+          retention-days: 7
+          if-no-files-found: warn
