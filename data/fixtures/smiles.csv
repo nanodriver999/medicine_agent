@@ -1,0 +1,11 @@
+molecule_id,smiles
+mol_1,CCO
+mol_2,OCC
+mol_3,CC(=O)O
+mol_4,c1ccccc1
+mol_5,CCN
+mol_6,CCOC(=O)C
+mol_7,CC(C)O
+mol_8,CN(C)C
+mol_9,CC(=O)N
+mol_10,CCCCO
