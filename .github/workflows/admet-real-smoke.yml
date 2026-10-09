@@ -75,7 +75,10 @@ jobs:
           assert len(report['calls']) == 10
           assert all(x['status'] == 'ok' and x['value'] is not None for x in report['calls'])
           assert report['source'] == 'live-admet-ai'
-          print('10 model calls succeeded; accuracy and task semantics NOT independently established')
+          from amo.smoke_evidence import validate_smoke_evidence
+          evidence = validate_smoke_evidence(report, required_count=10)
+          Path('outputs/admet_live/evidence.json').write_text(json.dumps(evidence, indent=2))
+          print('Ten distinct predictions passed provenance checks; scientific accuracy is unverified')
           PY
       - name: Upload logs and environment manifest
         if: always()
