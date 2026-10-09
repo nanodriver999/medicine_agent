@@ -13,7 +13,7 @@ def test_contract_smoke_and_logging(tmp_path):
     assert report["status"] == "ok"
     assert report["successes"] == 3
     assert report["budget"]["used_cost_units"] == 3
-    assert report["source"] == "injected-test-predictor"
+    assert report["source"] == "injected-adapter"
     export_smoke(report, tmp_path)
     assert len((tmp_path / "calls.jsonl").read_text().splitlines()) == 3
     assert json.loads((tmp_path / "admet_smoke.json").read_text())["successes"] == 3
