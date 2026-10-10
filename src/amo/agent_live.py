@@ -17,6 +17,7 @@ from .objectives import check_constraints
 from .llm_usage import LLMUsageLedger, Pricing
 from .total_cost import reconcile_costs
 from .currency_budget import CurrencyBudget
+from .live_budget_config import parse_live_llm_budget
 
 
 def live_agent_run(rows: list[dict], endpoint: Endpoint, *, budget_units: int = 10,
@@ -44,31 +45,19 @@ def live_agent_run(rows: list[dict], endpoint: Endpoint, *, budget_units: int = 
         {"admet_ai": endpoint.cost_units * adapter.max_attempts},
         Budget(endpoint.cost_units * budget_units, budget_units))
     if driver is None:
-        from strands.models.openai import OpenAIModel
         model_id = os.getenv("LLM_MODEL")
         api_key = os.getenv("LLM_API_KEY")
         if not model_id or not api_key:
-            raise RuntimeError("LLM_MODEL and LLM_API_KEY must be configured")
+            raise ValueError("LLM_MODEL and LLM_API_KEY must be configured")
+        # Validate budget assumptions *before* initializing a remote model SDK.
+        pricing, currency_budget, max_round = parse_live_llm_budget(os.environ)
+        from strands.models.openai import OpenAIModel
         client_args = {"api_key": api_key, "timeout": 30.0}
         if os.getenv("LLM_BASE_URL"):
             client_args["base_url"] = os.environ["LLM_BASE_URL"]
         model = OpenAIModel(model_id=model_id, client_args=client_args,
                             params={"temperature": 0, "max_tokens": 2048})
-        input_price = os.getenv("LLM_INPUT_UNITS_PER_MILLION")
-        output_price = os.getenv("LLM_OUTPUT_UNITS_PER_MILLION")
-        if not input_price or not output_price:
-            raise ValueError("LLM prices must be configured for live execution")
-        if input_price is not None and output_price is not None:
-            ledger = LLMUsageLedger(Pricing(float(input_price), float(output_price)), model_id)
-        else:
-            ledger = None
-        currency = os.getenv("LLM_PRICING_CURRENCY")
-        max_cost = os.getenv("LLM_MAX_ROUND_CURRENCY_COST")
-        total_limit = os.getenv("LLM_CURRENCY_BUDGET")
-        if not currency or not max_cost or not total_limit:
-            raise ValueError("live LLM requires explicit currency and round/total budgets")
-        currency_budget = CurrencyBudget(float(total_limit), currency)
-        max_round = float(max_cost)
+        ledger = LLMUsageLedger(pricing, model_id)
         driver = lambda current: run_strands_round(
             current, model, usage_ledger=ledger, currency_budget=currency_budget,
             maximum_llm_currency_cost=max_round)
