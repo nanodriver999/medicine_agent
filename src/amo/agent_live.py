@@ -15,6 +15,7 @@ from .agent_policy import EvaluationSession, run_strands_round
 from .core import Budget, descriptors, pareto_front, prepare
 from .objectives import check_constraints
 from .llm_usage import LLMUsageLedger, Pricing
+from .total_cost import reconcile_costs
 
 
 def live_agent_run(rows: list[dict], endpoint: Endpoint, *, budget_units: int = 10,
@@ -69,6 +70,14 @@ def live_agent_run(rows: list[dict], endpoint: Endpoint, *, budget_units: int = 
         evaluated.append({**row, endpoint.name: event["result"]["value"],
                           "admet_status": "ok", "admet_source": "admet_ai"})
     frontier = pareto_front(evaluated, {"qed": "max", endpoint.name: endpoint.direction})
+    llm_cost = driver_result.get("llm_cost", {"usage_status": "missing_pricing_configuration"})
+    currency = os.getenv("LLM_PRICING_CURRENCY")
+    unit_rate = os.getenv("EVALUATION_CURRENCY_PER_COST_UNIT")
+    total_cost = reconcile_costs(
+        evaluation_cost_units=session.budget.used_cost_units,
+        llm_cost={**llm_cost, "currency": currency} if isinstance(llm_cost, dict) else {},
+        currency_per_evaluation_unit=float(unit_rate) if unit_rate is not None else None,
+        currency=currency)
     return {"status": driver_result.get("status", "unknown"), "mode": "live-agent",
             "endpoint": endpoint.__dict__, "eligible": len(eligible),
             "screened": len(scored), "evaluated": evaluated,
@@ -76,7 +85,8 @@ def live_agent_run(rows: list[dict], endpoint: Endpoint, *, budget_units: int = 
             "budget": session.budget.__dict__,
             "model_id": os.getenv("LLM_MODEL", "injected-test-driver"),
             "token_usage": driver_result.get("token_usage", {"status": "missing_provider_usage"}),
-            "llm_cost": driver_result.get("llm_cost", {"usage_status": "missing_pricing_configuration"}),
+            "llm_cost": llm_cost,
+            "total_cost": total_cost,
             "warnings": ["Predicted ADMET != experimental observation.",
                          "LLM token usage not yet in cost budget; do NOT compare this mode fairly to fixed/rules."]}
 
