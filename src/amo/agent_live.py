@@ -14,6 +14,7 @@ from .admet import ADMETAdapter, Endpoint
 from .agent_policy import EvaluationSession, run_strands_round
 from .core import Budget, descriptors, pareto_front, prepare
 from .objectives import check_constraints
+from .llm_usage import LLMUsageLedger, Pricing
 
 
 def live_agent_run(rows: list[dict], endpoint: Endpoint, *, budget_units: int = 10,
@@ -51,7 +52,13 @@ def live_agent_run(rows: list[dict], endpoint: Endpoint, *, budget_units: int = 
             client_args["base_url"] = os.environ["LLM_BASE_URL"]
         model = OpenAIModel(model_id=model_id, client_args=client_args,
                             params={"temperature": 0, "max_tokens": 2048})
-        driver = lambda current: run_strands_round(current, model)
+        input_price = os.getenv("LLM_INPUT_UNITS_PER_MILLION")
+        output_price = os.getenv("LLM_OUTPUT_UNITS_PER_MILLION")
+        if input_price is not None and output_price is not None:
+            ledger = LLMUsageLedger(Pricing(float(input_price), float(output_price)), model_id)
+        else:
+            ledger = None
+        driver = lambda current: run_strands_round(current, model, usage_ledger=ledger)
     driver_result = driver(session)
     by_id = {r["molecule_id"]: r for r in eligible}
     evaluated = []
@@ -68,6 +75,8 @@ def live_agent_run(rows: list[dict], endpoint: Endpoint, *, budget_units: int = 
             "pareto": frontier, "events": list(session.events),
             "budget": session.budget.__dict__,
             "model_id": os.getenv("LLM_MODEL", "injected-test-driver"),
+            "token_usage": driver_result.get("token_usage", {"status": "missing_provider_usage"}),
+            "llm_cost": driver_result.get("llm_cost", {"usage_status": "missing_pricing_configuration"}),
             "warnings": ["Predicted ADMET != experimental observation.",
                          "LLM token usage not yet in cost budget; do NOT compare this mode fairly to fixed/rules."]}
 
