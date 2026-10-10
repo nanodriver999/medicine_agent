@@ -35,7 +35,17 @@ def verify_comparison(runs):
             raise ValueError("unequal benchmark conditions: " + key)
     if len({x["policy"] for x in runs}) != len(runs):
         raise ValueError("duplicate policy")
-    total_cost_verified = all(
+    # Evaluation cost units are synthetic budget weights by default; LLM
+    # cost units may represent currency. They cannot be summed unless a
+    # pre-declared, matching conversion has been applied to both.
+    cost_units_match = all(
+        x.get("evaluation_cost_basis") == x.get("llm_cost_basis") ==
+        x.get("budget_cost_basis") and
+        isinstance(x.get("budget_cost_basis"), str) and
+        bool(x["budget_cost_basis"].strip())
+        for x in runs
+    )
+    total_cost_verified = cost_units_match and all(
         isinstance(x.get("llm_cost_units"), (int, float))
         and not isinstance(x.get("llm_cost_units"), bool)
         and math.isfinite(x["llm_cost_units"]) and x["llm_cost_units"] >= 0
@@ -45,7 +55,10 @@ def verify_comparison(runs):
     return {
         "conditions_match": True,
         "total_cost_comparable": total_cost_verified,
+        "cost_units_match": cost_units_match,
         "policy_count": len(runs),
-        "status": "comparable" if total_cost_verified else "incomplete_llm_cost",
+        "status": ("comparable" if total_cost_verified else
+                   "incompatible_cost_units" if not cost_units_match else
+                   "incomplete_llm_cost"),
         "warning": "Comparability is a necessary condition, not proof of biological validity.",
     }
