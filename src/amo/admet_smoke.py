@@ -21,15 +21,18 @@ def run_smoke(rows: list[dict], endpoint: Endpoint, *, max_count: int = 10,
     injected_adapter = adapter is not None
     if adapter is None:
         adapter = ADMETAdapter(endpoint)
-    budget = Budget(endpoint.cost_units * max_count, max_count)
+    maximum_per_call = endpoint.cost_units * adapter.max_attempts
+    budget = Budget(maximum_per_call * max_count, max_count)
     calls = []
     for molecule in candidates:
         # For a first-time smoke each request is charged the configured cost.
         # The adapter reports cache hits as zero-cost for later reuse.
-        if not budget.permits(endpoint.cost_units):
+        if not budget.permits(maximum_per_call):
             break
         result = adapter.evaluate(molecule["smiles"])
         actual_cost = float(result["cost_units"])
+        if not (0 <= actual_cost <= maximum_per_call):
+            raise ValueError("model cost exceeded worst-case reservation")
         if not budget.permits(actual_cost):
             raise ValueError("model reported unexpected evaluation cost")
         budget.debit(actual_cost)
@@ -50,6 +53,7 @@ def run_smoke(rows: list[dict], endpoint: Endpoint, *, max_count: int = 10,
         "successes": successes,
         "calls": calls,
         "budget": budget.__dict__,
+        "maximum_reserved_cost_per_call": maximum_per_call,
         "warning": "Model outputs are predictions, not experimental measurements or safety guarantees.",
     }
 
