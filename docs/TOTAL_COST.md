@@ -1,0 +1,3 @@
+# Total-cost integrity
+
+ADMET evaluation units are abstract budget units, not USD. LLM provider prices may be in an actual currency, but the token ledger does not independently verify price or currency. `reconcile_costs` only returns a complete currency total when provider usage is verified, currency is explicitly declared and consistent, and a conversion from evaluation units is externally supplied. All other states are incomplete and must not be interpreted as zero cost. This gate does not itself limit spending during model calls; provider integration must reserve budget before invoking the LLM.
