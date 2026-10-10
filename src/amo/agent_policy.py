@@ -10,6 +10,7 @@ import time
 from typing import Callable, Any
 from .core import Budget
 from .runtime import validate_action
+from .strands_usage import extract_strands_usage
 
 
 class EvaluationSession:
@@ -142,9 +143,17 @@ def run_strands_round(session: EvaluationSession, model: Any) -> dict:
     agent = build_strands_agent(session, model)
     state = session.policy_state()
     try:
-        agent("Select useful evaluations using this authoritative state (JSON): "
-              + json.dumps(state, sort_keys=True))
-        return {"status": "ok", "events": session.events, "budget": session.policy_state()}
+        result = agent("Select useful evaluations using this authoritative state (JSON): "
+                       + json.dumps(state, sort_keys=True))
+        token_usage = extract_strands_usage(result)
+        if token_usage["status"] == "ok" and usage_ledger is not None:
+            usage_ledger.add(input_tokens=token_usage["input_tokens"],
+                             output_tokens=token_usage["output_tokens"], source="provider_usage")
+        return {"status": "ok", "events": session.events, "budget": session.policy_state(),
+                "token_usage": token_usage,
+                "llm_cost": usage_ledger.summary() if usage_ledger is not None else
+                {"usage_status": "missing_pricing_configuration"}}
     except Exception as exc:
         return {"status": "failed", "error_code": type(exc).__name__,
-                "events": session.events, "budget": session.policy_state()}
+                "events": session.events, "budget": session.policy_state(),
+                "token_usage": {"status": "missing_provider_usage"}}
