@@ -138,22 +138,56 @@ def build_strands_agent(session: EvaluationSession, model: Any):
     return Agent(model=model, tools=[evaluate_molecule], system_prompt=instructions)
 
 
-def run_strands_round(session: EvaluationSession, model: Any) -> dict:
-    """Opt-in live LLM call; always carry explicit tool budget in request state."""
-    agent = build_strands_agent(session, model)
-    state = session.policy_state()
-    try:
-        result = agent("Select useful evaluations using this authoritative state (JSON): "
-                       + json.dumps(state, sort_keys=True))
-        token_usage = extract_strands_usage(result)
-        if token_usage["status"] == "ok" and usage_ledger is not None:
-            usage_ledger.add(input_tokens=token_usage["input_tokens"],
-                             output_tokens=token_usage["output_tokens"], source="provider_usage")
-        return {"status": "ok", "events": session.events, "budget": session.policy_state(),
-                "token_usage": token_usage,
-                "llm_cost": usage_ledger.summary() if usage_ledger is not None else
-                {"usage_status": "missing_pricing_configuration"}}
-    except Exception as exc:
-        return {"status": "failed", "error_code": type(exc).__name__,
-                "events": session.events, "budget": session.policy_state(),
-                "token_usage": {"status": "missing_provider_usage"}}
+def run_strands_round(session: EvaluationSession, model: Any, usage_ledger=None,
+                      currency_budget=None, maximum_llm_currency_cost=None,
+                      agent_callable=None) -> dict:
+    """Run one agent round, refusing unbounded calls when a currency budget is given.
+
+    The caller supplies a defensible maximum that includes all billable
+    categories; actual usage is reconciled conservatively when missing.
+    """
+    from .llm_budget_bridge import invoke_with_reservation
+    if agent_callable is None:
+        agent_callable = build_strands_agent(session, model)
+    prompt = ("Select useful evaluations using this authoritative state (JSON): "
+              + json.dumps(session.policy_state(), sort_keys=True))
+    if currency_budget is not None and (
+        usage_ledger is None or maximum_llm_currency_cost is None
+    ):
+        return {"status": "rejected", "error_code": "UnboundedLLMCost",
+                "events": session.events, "budget": session.policy_state()}
+    def invoke():
+        return agent_callable(prompt)
+    if currency_budget is not None:
+        def observed(result):
+            usage = extract_strands_usage(result)
+            if usage["status"] != "ok":
+                return None
+            pricing = usage_ledger.pricing
+            return (usage["input_tokens"] * pricing.input_units_per_million
+                    + usage["output_tokens"] * pricing.output_units_per_million) / 1_000_000
+        receipt = invoke_with_reservation(
+            budget=currency_budget, request_id="strands-round-1",
+            maximum_currency_cost=maximum_llm_currency_cost,
+            invoke=invoke, actual_cost=observed)
+        if receipt["status"] != "ok":
+            return {"status": receipt["status"],
+                    "error_code": receipt.get("error_code"),
+                    "currency_budget": receipt["budget"],
+                    "events": session.events, "budget": session.policy_state()}
+        result = receipt["result"]
+    else:
+        try:
+            result = invoke()
+        except Exception as exc:
+            return {"status": "failed", "error_code": type(exc).__name__,
+                    "events": session.events, "budget": session.policy_state()}
+    token_usage = extract_strands_usage(result)
+    if token_usage["status"] == "ok" and usage_ledger is not None:
+        usage_ledger.add(input_tokens=token_usage["input_tokens"],
+                         output_tokens=token_usage["output_tokens"], source="provider_usage")
+    return {"status": "ok", "events": session.events,
+            "budget": session.policy_state(), "token_usage": token_usage,
+            "llm_cost": usage_ledger.summary() if usage_ledger is not None else
+                        {"usage_status": "missing_pricing_configuration"},
+            "currency_budget": currency_budget.snapshot() if currency_budget is not None else None}
