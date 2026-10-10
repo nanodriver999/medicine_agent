@@ -1,0 +1,3 @@
+# Currency budget preflight
+
+`CurrencyBudget` reserves a configured worst-case cost before external work, prevents overlapping reservations from exceeding the cap, and settles against verified observed costs. Unknown usage charges the full reservation. Provider charges higher than the reserved ceiling are a hard contract violation, not a normalized metric. This is a serial local accounting primitive **not yet wired to Strands calls**. Without bounded token generation and verified provider pricing, an absolute real-world billing ceiling cannot be guaranteed. Concurrent execution needs a transaction-safe reservation backend.
