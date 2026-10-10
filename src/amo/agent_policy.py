@@ -176,7 +176,9 @@ def run_strands_round(session: EvaluationSession, model: Any, usage_ledger=None,
                     "currency_budget": receipt["budget"],
                     "events": session.events, "budget": session.policy_state()}
         result = receipt["result"]
+        provider_usage_unverified = extract_strands_usage(result)["status"] != "ok"
     else:
+        provider_usage_unverified = False
         try:
             result = invoke()
         except Exception as exc:
@@ -186,7 +188,8 @@ def run_strands_round(session: EvaluationSession, model: Any, usage_ledger=None,
     if token_usage["status"] == "ok" and usage_ledger is not None:
         usage_ledger.add(input_tokens=token_usage["input_tokens"],
                          output_tokens=token_usage["output_tokens"], source="provider_usage")
-    return {"status": "ok", "events": session.events,
+    return {"status": "incomplete_usage" if provider_usage_unverified else "ok",
+            "events": session.events,
             "budget": session.policy_state(), "token_usage": token_usage,
             "llm_cost": usage_ledger.summary() if usage_ledger is not None else
                         {"usage_status": "missing_pricing_configuration"},
