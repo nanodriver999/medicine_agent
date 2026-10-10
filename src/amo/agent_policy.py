@@ -5,6 +5,8 @@ network browser, arbitrary Python, or filesystem tools are made available.
 """
 from __future__ import annotations
 import json
+import math
+import time
 from typing import Callable, Any
 from .core import Budget
 from .runtime import validate_action
@@ -13,13 +15,29 @@ from .runtime import validate_action
 class EvaluationSession:
     def __init__(self, molecules: dict[str, str],
                  evaluator: Callable[[str, str, str], dict],
-                 tasks: dict[str, set[str]], costs: dict[str, float], budget: Budget):
+                 tasks: dict[str, set[str]], costs: dict[str, float], budget: Budget,
+                 max_actions: int = 32, max_wall_seconds: float = 900,
+                 clock: Callable[[], float] = time.monotonic):
+        if isinstance(max_actions, bool) or not isinstance(max_actions, int) or max_actions < 1:
+            raise ValueError('max_actions must be positive')
+        if (isinstance(max_wall_seconds, bool) or not isinstance(max_wall_seconds, (int, float))
+            or not math.isfinite(max_wall_seconds) or max_wall_seconds <= 0):
+            raise ValueError('max_wall_seconds must be positive and finite')
+        self.max_actions, self.max_wall_seconds, self.clock = max_actions, max_wall_seconds, clock
+        self.deadline = clock() + max_wall_seconds
+        self.action_count = 0
         self.molecules = dict(molecules)
         self.evaluator, self.tasks, self.costs, self.budget = evaluator, tasks, costs, budget
         self.events: list[dict] = []
         self.seen: set[tuple[str, str, str]] = set()
 
     def evaluate(self, molecule_id: str, tool: str, task: str) -> dict:
+        self.action_count += 1
+        if self.action_count > self.max_actions or self.clock() >= self.deadline:
+            reason = "ActionLimit" if self.action_count > self.max_actions else "WallDeadline"
+            self.events.append({"kind": "rejected", "molecule_id": molecule_id,
+                                "tool": tool, "task": task, "reason": reason})
+            return {"status": "rejected", "reason": reason}
         request = {"kind": "evaluate", "molecule_id": molecule_id, "tool": tool, "task": task}
         try:
             action = validate_action(request, molecule_ids=set(self.molecules),
@@ -86,7 +104,9 @@ class EvaluationSession:
                 "allowed_tasks": {k: sorted(v) for k, v in self.tasks.items()},
                 "remaining_cost_units": self.budget.max_cost_units - self.budget.used_cost_units,
                 "remaining_tool_calls": self.budget.max_tool_calls - self.budget.tool_calls,
-                "evaluated_calls": len(self.seen)}
+                "evaluated_calls": len(self.seen),
+                "remaining_actions": max(0, self.max_actions - self.action_count),
+                "wall_deadline_reached": self.clock() >= self.deadline}
 
 
 def build_strands_agent(session: EvaluationSession, model: Any):
