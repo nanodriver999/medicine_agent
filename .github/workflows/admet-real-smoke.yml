@@ -37,10 +37,17 @@ jobs:
         run: |
           python -m pip install -e .
           python -m pip install admet-ai
-          python -m pip freeze > /tmp/admet-installed-versions.txt
+          mkdir -p outputs
+          python -m pip freeze > outputs/admet-installed-versions.txt
+          python - <<'PY'
+          import json, platform, sys
+          from pathlib import Path
+          Path('outputs/runtime.json').write_text(json.dumps({'python':sys.version,'platform':platform.platform()},indent=2))
+          PY
       - name: Collect distinct public molecules
         run: |
           python scripts/fetch_chembl_pool.py --count 30 --out data/processed/chembl_smoke.csv
+          sha256sum data/processed/chembl_smoke.csv > outputs/chembl_smoke.sha256
       - name: Inspect actual property schema
         run: |
           python -m amo.cli admet-inspect --smiles CCO --out outputs/admet_inventory.json
@@ -75,6 +82,7 @@ jobs:
           assert len(report['calls']) == 10
           assert all(x['status'] == 'ok' and x['value'] is not None for x in report['calls'])
           assert report['source'] == 'live-admet-ai'
+          assert report['package_version'] != 'not-installed-or-injected'
           from amo.smoke_evidence import validate_smoke_evidence
           evidence = validate_smoke_evidence(report, required_count=10)
           Path('outputs/admet_live/evidence.json').write_text(json.dumps(evidence, indent=2))
@@ -88,6 +96,7 @@ jobs:
           path: |
             outputs/
             data/processed/*.manifest.json
-            /tmp/admet-installed-versions.txt
+            data/processed/chembl_smoke.csv
+            outputs/admet-installed-versions.txt
           retention-days: 7
           if-no-files-found: warn
