@@ -48,7 +48,9 @@ def run_smoke(rows: list[dict], endpoint: Endpoint, *, max_count: int = 10,
         budget.debit(billed)
         if not valid_cost:
             result = {"status": "failed", "value": None,
-                      "error_code": "UnverifiedCost", "cache_hit": False}
+                      "error_code": result.get("error_code", "UnverifiedCost")
+                                    if result.get("status") != "ok" else "UnverifiedCost",
+                      "cache_hit": False}
         if result.get("status") != "ok":
             result = {**result, "status": "failed", "value": None}
         calls.append({"molecule_id": molecule["molecule_id"], "smiles": molecule["smiles"],
