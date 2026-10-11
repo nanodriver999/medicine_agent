@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import importlib.metadata
 import json
 import math
+from numbers import Real
 from pathlib import Path
 
 from .core import standardize
@@ -19,7 +20,7 @@ def inspect_prediction(smiles: str, raw: dict) -> dict:
     for name, value in sorted(raw.items()):
         if not isinstance(name, str) or not name:
             raise ValueError("invalid endpoint name")
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value):
             endpoints.append({"name": name, "numeric_finite": False, "sample_value": None})
         else:
             endpoints.append({"name": name, "numeric_finite": True, "sample_value": float(value)})

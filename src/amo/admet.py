@@ -7,6 +7,7 @@ Endpoint semantics must be explicitly recorded from the installed model.
 from __future__ import annotations
 from dataclasses import dataclass
 import math
+from numbers import Real
 import time
 from typing import Callable, Any
 
@@ -69,7 +70,7 @@ class ADMETAdapter:
                 if not isinstance(raw, dict) or e.name not in raw:
                     raise ValueError("ADMET prediction endpoint missing")
                 value = raw[e.name]
-                if (isinstance(value, bool) or not isinstance(value, (int, float))
+                if (isinstance(value, bool) or not isinstance(value, Real)
                     or not math.isfinite(value)):
                     raise ValueError("ADMET prediction must be a finite numeric value")
                 result = {"status": "ok", "value": float(value), "endpoint": e.name,
