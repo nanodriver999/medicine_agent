@@ -9,6 +9,7 @@ import statistics
 from rdkit import rdBase
 from .core import run, diversity
 from .metrics import hypervolume_qed_risk, cost_curve
+from .paired_statistics import paired_bootstrap
 
 
 def run_comparison(rows: list[dict], *, seeds=(42, 43, 44),
@@ -40,7 +41,21 @@ def run_comparison(rows: list[dict], *, seeds=(42, 43, 44),
         aggregates.append({"policy": policy, "n": len(vals),
                            "mean_best_fixture_objective": statistics.mean(vals) if vals else None,
                            "std_best_fixture_objective": statistics.stdev(vals) if len(vals) > 1 else None})
+    paired_intervals = []
+    if len(set(seeds)) >= 3 and len(set(seeds)) == len(seeds):
+        for index, first in enumerate(policies):
+            for second in policies[index + 1:]:
+                try:
+                    paired_intervals.append(paired_bootstrap(
+                        items, metric="best_fixture_objective",
+                        policy_a=first, policy_b=second))
+                except ValueError:
+                    # Missing/invalid observations cannot be imputed.
+                    paired_intervals.append({
+                        "policy_a": first, "policy_b": second,
+                        "status": "insufficient_complete_paired_data"})
     return {"runs": items, "summary": aggregates,
+            "paired_intervals": paired_intervals,
             "warning": "Synthetic oracle: software comparison only; not evidence of drug activity."}
 
 
