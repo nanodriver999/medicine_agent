@@ -1,0 +1,3 @@
+# Paired-policy uncertainty reporting
+
+Use matched random seeds for fixed/rules/agent comparisons. `paired_bootstrap` computes the distribution of **within-seed differences** with deterministic percentile resampling; it rejects duplicate seeds, missing observations and non-finite values. It needs at least three complete seed pairs but three pairs do not support robust statistical generalization. This standalone statistical tool accepts synthetic or real observed metrics and does not validate the provenance or expense of model calls. Apply comparison-integrity checks before interpreting a policy improvement. No real-model performance conclusion follows from unit tests.
